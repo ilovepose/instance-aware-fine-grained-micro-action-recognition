@@ -1,7 +1,7 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 import os.path as osp
 from typing import Callable, List, Optional, Union
-
+import numpy as np
 from mmengine.fileio import exists, list_from_file
 
 from mmaction.registry import DATASETS
@@ -64,6 +64,7 @@ class VideoDataset(BaseActionDataset):
                  delimiter: str = ' ',
                  **kwargs) -> None:
         self.delimiter = delimiter
+        self.embeddings=np.load("/home/wangchen/projects/mmaction2/weights/1214_new_mean_Vectors.npy")
         super().__init__(
             ann_file,
             pipeline=pipeline,
@@ -94,5 +95,5 @@ class VideoDataset(BaseActionDataset):
                 label = int(label)
             if self.data_prefix['video'] is not None:
                 filename = osp.join(self.data_prefix['video'], filename)
-            data_list.append(dict(filename=filename, label=label))
+            data_list.append(dict(filename=filename, label=label, emb=self.embeddings[label]))
         return data_list

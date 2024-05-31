@@ -15,9 +15,11 @@ from .tsn_audio_head import TSNAudioHead
 from .tsn_head import TSNHead
 from .uniformer_head import UniFormerHead
 from .x3d_head import X3DHead
+from .manet_head import MANetHead
 
 __all__ = [
     'BaseHead', 'GCNHead', 'I3DHead', 'MViTHead', 'OmniHead', 'SlowFastHead',
     'TPNHead', 'TRNHead', 'TSMHead', 'TSNAudioHead', 'TSNHead',
-    'TimeSformerHead', 'UniFormerHead', 'RGBPoseHead', 'X3DHead', 'FeatureHead'
+    'TimeSformerHead', 'UniFormerHead', 'RGBPoseHead', 'X3DHead', 'FeatureHead',
+    'MANetHead'
 ]

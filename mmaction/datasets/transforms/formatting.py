@@ -97,6 +97,9 @@ class PackActionInputs(BaseTransform):
             if key in results:
                 data_sample.set_field(results[key], key)
 
+        if 'emb' in results:
+            data_sample.set_gt_emb(to_tensor(results['emb']))
+
         # Set meta keys
         img_meta = {k: results[k] for k in self.meta_keys if k in results}
         data_sample.set_metainfo(img_meta)

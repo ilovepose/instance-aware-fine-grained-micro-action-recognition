@@ -73,6 +73,11 @@ class ActionDataSample(BaseDataElement):
         self.set_field(format_label(value), 'gt_label', dtype=torch.Tensor)
         return self
 
+    def set_gt_emb(self, value: LABEL_TYPE) -> 'ActionDataSample':
+        """Set `gt_emb``."""
+        self.set_field(format_label(value), 'gt_emb', dtype=torch.Tensor)
+        return self
+
     def set_pred_label(self, value: LABEL_TYPE) -> 'ActionDataSample':
         """Set ``pred_label``."""
         self.set_field(format_label(value), 'pred_label', dtype=torch.Tensor)
