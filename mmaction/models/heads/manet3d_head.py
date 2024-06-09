@@ -10,8 +10,8 @@ from .base import AvgConsensus, BaseHead
 
 
 @MODELS.register_module()
-class MANetHead(BaseHead):
-    """Class head for MANet.
+class MANet3DHead(BaseHead):
+    """Class head for MANet3D.
 
     Args:
         num_classes (int): Number of classes to be classified.
@@ -45,7 +45,7 @@ class MANetHead(BaseHead):
                  temporal_pool=False,
                  **kwargs):
         super().__init__(num_classes, in_channels, loss_cls, **kwargs)
-        self.loss_emb = MODELS.build(dict(type='MseLoss'))
+        self.loss_emb = MODELS.build(loss_emb)
         self.spatial_type = spatial_type
         self.dropout_ratio = dropout_ratio
         self.num_segments = num_segments
@@ -73,7 +73,7 @@ class MANetHead(BaseHead):
 
         if self.spatial_type == 'avg':
             # use `nn.AdaptiveAvgPool2d` to adaptively match the in_channels.
-            self.avg_pool = nn.AdaptiveAvgPool2d(1)
+            self.avg_pool = nn.AdaptiveAvgPool3d((1, 1, 1))
         else:
             self.avg_pool = None
 
@@ -84,7 +84,7 @@ class MANetHead(BaseHead):
         normal_init(self.fc_emb_t, std=self.init_std)
 
 
-    def forward(self, x, num_segs, **kwargs):
+    def forward(self, x, **kwargs):
         """Defines the computation performed at every call.
 
         Args:
@@ -98,24 +98,15 @@ class MANetHead(BaseHead):
             torch.Tensor: The classification scores for input samples.
         """
         if self.avg_pool is not None:
-            x = self.avg_pool(x)
-        x = torch.flatten(x, 1)
+            x = self.avg_pool(x)  # N,C,H,W->N,C,1,1
+        
         if self.dropout is not None:
             x = self.dropout(x)
-        cls_score = self.fc_cls(x)
-        emb_score = self.fc_emb_t(self.tanh(self.fc_emb(x)))
 
-        if self.is_shift and self.temporal_pool:
-            cls_score = cls_score.view((-1, self.num_segments // 2) +
-                                       cls_score.size()[1:])
-        else:
-            cls_score = cls_score.view((-1, self.num_segments) +
-                                       cls_score.size()[1:])
-            emb_score = emb_score.view((-1, self.num_segments) +
-                            emb_score.size()[1:])
-        cls_score = self.consensus(cls_score)
-        emb_score = self.consensus(emb_score)
-        return cls_score.squeeze(1),emb_score.squeeze(1)
+        x = torch.flatten(x, 1)  #  N,C,1,1->N,C
+        cls_score = self.fc_cls(x)  # N,C,H,W
+        emb_score = self.fc_emb_t(self.tanh(self.fc_emb(x)))
+        return cls_score, emb_score  # [N,Cls]
 
     def loss(self, feats, data_samples, **kwargs):
         cls_scores, emb_scores = self(feats, **kwargs)
@@ -187,5 +178,5 @@ class MANetHead(BaseHead):
                 by :obj:`ActionDataSample`.
         """
         cls_scores, _ = self(feats, **kwargs)
-        cls_scores = self.average_clip(cls_scores)  # TODO: align to baseline, self.num_segments
+        # cls_scores = self.average_clip(cls_scores)  # TODO: align to baseline, self.num_segments
         return self.predict_by_feat(cls_scores, data_samples)

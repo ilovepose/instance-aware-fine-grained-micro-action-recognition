@@ -29,16 +29,25 @@ resume = False
 
 epoch_max=80
 
-model = dict(
-    data_preprocessor=dict(
-        blending=dict(
-            type='RandomBatchAugment',
-            augments=[
-                dict(type='MixupBlending', alpha=0.8, num_classes=52),
-                dict(type='CutmixBlending', alpha=1, num_classes=52)
-            ]),
-        ),
-)
+# model = dict(
+#     cls_head=dict(
+#         label_smooth_eps=0.1,  # add label smooth
+#         average_clips='prob'
+#         ),
+#     # add Mixup
+#     # data_preprocessor=dict(
+#     #     type='ActionDataPreprocessor',
+#     #     mean=[123.675, 116.28, 103.53],
+#     #     std=[58.395, 57.12, 57.375],
+#     #     format_shape='NCHW',
+#     #     blending=dict(
+#     #         type='RandomBatchAugment',
+#     #         augments=[
+#     #             dict(type='MixupBlending', alpha=0.8, num_classes=52),
+#     #             dict(type='CutmixBlending', alpha=1, num_classes=52)
+#     #         ]),
+#     #     ),
+# )
 
 
 # dataset settings
