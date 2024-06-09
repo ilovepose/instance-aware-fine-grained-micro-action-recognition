@@ -1927,3 +1927,107 @@ class LoadProposals(BaseTransform):
                     f'proposal_ext={self.proposal_ext}, '
                     f'feature_ext={self.feature_ext})')
         return repr_str
+
+@TRANSFORMS.register_module()
+class DecordDecodeCrop(BaseTransform):
+    """Using decord to decode the video.
+
+    Decord: https://github.com/dmlc/decord
+
+    Required Keys:
+
+        - video_reader
+        - frame_inds
+
+    Added Keys:
+
+        - imgs
+        - original_shape
+        - img_shape
+
+    Args:
+        mode (str): Decoding mode. Options are 'accurate' and 'efficient'.
+            If set to 'accurate', it will decode videos into accurate frames.
+            If set to 'efficient', it will adopt fast seeking but only return
+            key frames, which may be duplicated and inaccurate, and more
+            suitable for large scene-based video datasets.
+            Defaults to ``'accurate'``.
+    """
+
+    def __init__(self, mode: str = 'accurate') -> None:
+        self.mode = mode
+        assert mode in ['accurate', 'efficient']
+
+    def _decord_load_frames(self, container: object,
+                            frame_inds: np.ndarray) -> List[np.ndarray]:
+        if self.mode == 'accurate':
+            imgs = container.get_batch(frame_inds).asnumpy()
+            imgs = list(imgs)
+        elif self.mode == 'efficient':
+            # This mode is faster, however it always returns I-FRAME
+            container.seek(0)
+            imgs = list()
+            for idx in frame_inds:
+                container.seek(idx)
+                frame = container.next()
+                imgs.append(frame.asnumpy())
+        return imgs
+
+    def transform(self, results: Dict) -> Dict:
+        """Perform the Decord decoding.
+
+        Args:
+            results (dict): The result dict.
+
+        Returns:
+            dict: The result dict.
+        """
+        container = results['video_reader']
+
+        if results['frame_inds'].ndim != 1:
+            results['frame_inds'] = np.squeeze(results['frame_inds'])
+
+        frame_inds = results['frame_inds']
+        imgs = self._decord_load_frames(container, frame_inds)
+
+        results['video_reader'] = None
+        del container
+
+        # results['imgs'] = imgs
+        # results['original_shape'] = imgs[0].shape[:2]
+        # results['img_shape'] = imgs[0].shape[:2]
+        # img_h, img_w = imgs[0].shape[:2]
+        x1,y1,x2,y2=results['bbox']
+        x1,y1,x2,y2=int(x1),int(y1),int(x2),int(y2)
+        # xc=(x1+x2)//2
+        # yc=(y1+y2)//2
+        max_wh = max(x2-x1, y2-y1)+1
+        # max_wh = max(x2-x1, y2-y1)//2+1
+        # x1 = max(int(xc-max_wh), 0)
+        # y1 = max(int(yc-max_wh), 0)
+        # x2 = min(int(xc+max_wh), img_w)
+        # y2 = min(int(yc+max_wh), img_h) 
+        # assert (y2-y1)==(x2-x1), "Width and height of cropped patch is not same"
+        results['imgs']=[mmcv.impad(img[y1:y2,x1:x2], shape=(max_wh, max_wh), pad_val=0) for img in imgs]
+        # bbox = [int(x) for x in results['bbox']]
+        # results['imgs'] = [mmcv.imcrop(img, np.array(bbox)) for img in imgs]
+        results['original_shape'] = results['imgs'][0].shape[:2]
+        results['img_shape'] = results['imgs'][0].shape[:2]
+
+        # we resize the gt_bboxes and proposals to their real scale
+        if 'gt_bboxes' in results:
+            h, w = results['img_shape']
+            scale_factor = np.array([w, h, w, h])
+            gt_bboxes = results['gt_bboxes']
+            gt_bboxes = (gt_bboxes * scale_factor).astype(np.float32)
+            results['gt_bboxes'] = gt_bboxes
+            if 'proposals' in results and results['proposals'] is not None:
+                proposals = results['proposals']
+                proposals = (proposals * scale_factor).astype(np.float32)
+                results['proposals'] = proposals
+
+        return results
+
+    def __repr__(self) -> str:
+        repr_str = f'{self.__class__.__name__}(mode={self.mode})'
+        return repr_str

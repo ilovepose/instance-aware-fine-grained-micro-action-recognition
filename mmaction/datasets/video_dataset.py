@@ -3,7 +3,7 @@ import os.path as osp
 from typing import Callable, List, Optional, Union
 import numpy as np
 from mmengine.fileio import exists, list_from_file
-
+import pickle
 from mmaction.registry import DATASETS
 from mmaction.utils import ConfigType
 from .base import BaseActionDataset
@@ -64,7 +64,9 @@ class VideoDataset(BaseActionDataset):
                  delimiter: str = ' ',
                  **kwargs) -> None:
         self.delimiter = delimiter
-        self.embeddings=np.load("/home/wangchen/projects/mmaction2/weights/1214_new_mean_Vectors.npy")
+        self.embeddings=np.load("weights/1214_new_mean_Vectors.npy")
+        with open('weights/instances_all.pickle', 'rb') as fr:
+            self.bboxes = pickle.load(fr)
         super().__init__(
             ann_file,
             pipeline=pipeline,
@@ -92,8 +94,9 @@ class VideoDataset(BaseActionDataset):
                 filename, label = line_split[0], -1
             else:
                 filename, label = line_split
+                video_name = filename
                 label = int(label)
             if self.data_prefix['video'] is not None:
                 filename = osp.join(self.data_prefix['video'], filename)
-            data_list.append(dict(filename=filename, label=label, emb=self.embeddings[label]))
+            data_list.append(dict(filename=filename, label=label, emb=self.embeddings[label], bbox=self.bboxes[video_name]))
         return data_list

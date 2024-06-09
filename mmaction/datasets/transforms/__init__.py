@@ -8,7 +8,7 @@ from .loading import (ArrayDecode, AudioFeatureSelector, BuildPseudoClip,
                       LoadProposals, LoadRGBFromFile, OpenCVDecode, OpenCVInit,
                       PIMSDecode, PIMSInit, PyAVDecode, PyAVDecodeMotionVector,
                       PyAVInit, RawFrameDecode, SampleAVAFrames, SampleFrames,
-                      UniformSample, UntrimmedSampleFrames)
+                      UniformSample, UntrimmedSampleFrames, DecordDecodeCrop)
 from .pose_transforms import (DecompressPose, GeneratePoseTarget, GenSkeFeat,
                               JointToBone, MergeSkeFeat, MMCompact, MMDecode,
                               MMUniformSampleFrames, PadTo, PoseCompact,
