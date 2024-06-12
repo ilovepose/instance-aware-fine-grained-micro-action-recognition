@@ -5,7 +5,7 @@ import os
 import os.path as osp
 import shutil
 from typing import Dict, List, Optional, Union
-
+import random, cv2
 import mmcv
 import numpy as np
 import torch
@@ -1928,8 +1928,10 @@ class LoadProposals(BaseTransform):
                     f'feature_ext={self.feature_ext})')
         return repr_str
 
+
+# wangchen: add for cropping individual bbox
 @TRANSFORMS.register_module()
-class DecordDecodeCrop(BaseTransform):
+class DecordDecodeCrop(DecordDecode):
     """Using decord to decode the video.
 
     Decord: https://github.com/dmlc/decord
@@ -1954,24 +1956,11 @@ class DecordDecodeCrop(BaseTransform):
             Defaults to ``'accurate'``.
     """
 
-    def __init__(self, mode: str = 'accurate') -> None:
-        self.mode = mode
-        assert mode in ['accurate', 'efficient']
-
-    def _decord_load_frames(self, container: object,
-                            frame_inds: np.ndarray) -> List[np.ndarray]:
-        if self.mode == 'accurate':
-            imgs = container.get_batch(frame_inds).asnumpy()
-            imgs = list(imgs)
-        elif self.mode == 'efficient':
-            # This mode is faster, however it always returns I-FRAME
-            container.seek(0)
-            imgs = list()
-            for idx in frame_inds:
-                container.seek(idx)
-                frame = container.next()
-                imgs.append(frame.asnumpy())
-        return imgs
+    def __init__(self, mode: str = 'accurate', train=True, scale=(192, 256)):
+        super().__init__(mode)
+        self.aspect_ratio = 0.5
+        self.train=train
+        self.scale=scale  # (w,h)
 
     def transform(self, results: Dict) -> Dict:
         """Perform the Decord decoding.
@@ -1997,18 +1986,18 @@ class DecordDecodeCrop(BaseTransform):
         # results['original_shape'] = imgs[0].shape[:2]
         # results['img_shape'] = imgs[0].shape[:2]
         # img_h, img_w = imgs[0].shape[:2]
-        x1,y1,x2,y2=results['bbox']
-        x1,y1,x2,y2=int(x1),int(y1),int(x2),int(y2)
-        # xc=(x1+x2)//2
-        # yc=(y1+y2)//2
-        max_wh = max(x2-x1, y2-y1)+1
-        # max_wh = max(x2-x1, y2-y1)//2+1
-        # x1 = max(int(xc-max_wh), 0)
-        # y1 = max(int(yc-max_wh), 0)
-        # x2 = min(int(xc+max_wh), img_w)
-        # y2 = min(int(yc+max_wh), img_h) 
-        # assert (y2-y1)==(x2-x1), "Width and height of cropped patch is not same"
-        results['imgs']=[mmcv.impad(img[y1:y2,x1:x2], shape=(max_wh, max_wh), pad_val=0) for img in imgs]
+        c, s = self._box2cs(results['bbox'])
+        r = 0
+        offset = 0.0
+        if self.train:
+            sf = 0.35
+            rf = 5
+            s = s * np.clip(np.random.randn()*sf + 1, 1 - sf, 1 + 0.5*sf)  #
+            r = np.clip(np.random.randn()*rf, -rf, rf) if random.random() <= 0.5 else 0
+            offset = 0.1
+
+        trans = get_affine_transform(c, s, r, self.scale, offset)
+        results['imgs'] = [cv2.warpAffine(img, trans, self.scale, flags=cv2.INTER_LINEAR) for img in imgs]
         # bbox = [int(x) for x in results['bbox']]
         # results['imgs'] = [mmcv.imcrop(img, np.array(bbox)) for img in imgs]
         results['original_shape'] = results['imgs'][0].shape[:2]
@@ -2028,6 +2017,66 @@ class DecordDecodeCrop(BaseTransform):
 
         return results
 
-    def __repr__(self) -> str:
-        repr_str = f'{self.__class__.__name__}(mode={self.mode})'
-        return repr_str
+    def _box2cs(self, box):
+        x1, y1, x2, y2 = box[:4]
+
+        center = np.zeros((2), dtype=np.float32)  # np.array([xc, yc])
+        center[0] = (x1+x2) * 0.5
+        center[1] = (y1+y2) * 0.5
+
+        w = x2-x1
+        h = y2-y1
+        if w > self.aspect_ratio * h:
+            h = w / self.aspect_ratio
+        elif w < self.aspect_ratio * h:
+            w = h * self.aspect_ratio
+        scale = np.array([w, h], dtype=np.float32)
+        scale = scale * 1.05
+        return center, scale
+
+def get_affine_transform(center, scale, rot, output_size, shift=0.0, inv=0):
+    shift_x = random.random()*shift
+    shift_y = random.random()*shift
+    shift=np.array([shift_x, shift_y], dtype=np.float32)
+
+    if not isinstance(scale, np.ndarray) and not isinstance(scale, list):
+        print(scale)
+        scale = np.array([scale, scale])
+
+    src_w = scale[0]
+    dst_w = output_size[0]
+    dst_h = output_size[1]
+
+    rot_rad = np.pi * rot / 180
+    src_dir = get_dir([0, src_w * -0.5], rot_rad)
+    dst_dir = np.array([0, dst_w * -0.5], np.float32)
+
+    src = np.zeros((3, 2), dtype=np.float32)
+    dst = np.zeros((3, 2), dtype=np.float32)
+    src[0, :] = center + scale * shift
+    src[1, :] = center + src_dir + scale * shift
+    dst[0, :] = [dst_w * 0.5, dst_h * 0.5]
+    dst[1, :] = np.array([dst_w * 0.5, dst_h * 0.5]) + dst_dir
+
+    src[2:, :] = get_3rd_point(src[0, :], src[1, :])
+    dst[2:, :] = get_3rd_point(dst[0, :], dst[1, :])
+
+    if inv:
+        trans = cv2.getAffineTransform(np.float32(dst), np.float32(src))
+    else:
+        trans = cv2.getAffineTransform(np.float32(src), np.float32(dst))
+
+    return trans
+
+def get_dir(src_point, rot_rad):
+    sn, cs = np.sin(rot_rad), np.cos(rot_rad)
+
+    src_result = [0, 0]
+    src_result[0] = src_point[0] * cs - src_point[1] * sn
+    src_result[1] = src_point[0] * sn + src_point[1] * cs
+
+    return src_result
+
+def get_3rd_point(a, b):
+    direct = a - b
+    return b + np.array([-direct[1], direct[0]], dtype=np.float32)
