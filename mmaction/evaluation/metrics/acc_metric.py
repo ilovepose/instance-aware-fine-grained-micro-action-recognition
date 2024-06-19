@@ -3,7 +3,7 @@ import copy
 from collections import OrderedDict
 from itertools import product
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
-
+from sklearn.metrics import f1_score
 import mmengine
 import numpy as np
 import torch
@@ -56,7 +56,7 @@ class AccMetric(BaseMetric):
         for metric in metrics:
             assert metric in [
                 'top_k_accuracy', 'mean_class_accuracy',
-                'mmit_mean_average_precision', 'mean_average_precision'
+                'mmit_mean_average_precision', 'mean_average_precision', 'f1_mean'
             ]
 
         self.metrics = metrics
@@ -176,6 +176,23 @@ class AccMetric(BaseMetric):
             if metric == 'mean_class_accuracy':
                 mean1 = mean_class_accuracy(preds, labels)
                 eval_results['mean1'] = mean1
+
+            # wangchen add for MA52 evaluation
+            if metric == "f1_mean":
+                preds_fine = np.argmax(preds, axis=1).tolist()
+                labels_fine = labels
+                labels_coarse = [fine2coarse(pred) for pred in preds_fine]
+                preds_coarse = [fine2coarse(label) for label in labels_fine]
+                micro_score_coarse = f1_score(labels_coarse, preds_coarse, average='micro')
+                macro_score_coarse = f1_score(labels_coarse, preds_coarse, average='macro')
+                micro_score_fine = f1_score(labels_fine, preds_fine, average='micro')
+                macro_score_fine = f1_score(labels_fine, preds_fine, average='macro')
+                # print('Micro f1-score', micro_score_coarse)
+                # print('Macro f1-score', macro_score_coarse)
+                # print('Micro f1-score', micro_score_fine)
+                # print('Macro f1-score', macro_score_fine)
+                f1_mean = (micro_score_coarse + macro_score_coarse + micro_score_fine + macro_score_fine) / 4
+                eval_results['f1_mean'] = f1_mean
 
             if metric in [
                     'mean_average_precision',
@@ -385,3 +402,20 @@ class ConfusionMatrix(BaseMetric):
         if show:
             plt.show()
         return fig
+
+# wangchen add for MA52 evaluation
+def fine2coarse(x):
+    if x <= 4:
+        return 0
+    elif 5 <= x <= 10:
+        return 1
+    elif 11 <= x <= 23:
+        return 2
+    elif 24 <= x <= 31:
+        return 3
+    elif 32 <= x <= 37:
+        return 4
+    elif 38 <= x <= 47:
+        return 5
+    else:
+        return 6
