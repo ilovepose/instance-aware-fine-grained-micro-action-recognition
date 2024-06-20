@@ -64,8 +64,9 @@ class VideoDataset(BaseActionDataset):
                  delimiter: str = ' ',
                  **kwargs) -> None:
         self.delimiter = delimiter
-        self.embeddings=np.load("weights/1214_new_mean_Vectors.npy")
-        with open('weights/instances_all.pickle', 'rb') as fr:
+        self.embeddings=np.load("weights/MA52_CoarseFineVectors.npy")
+        self.embeddings=self.embeddings.astype(np.float32)
+        with open('weights/instances_all_fix_all.pickle', 'rb') as fr:
             self.bboxes = pickle.load(fr)
         super().__init__(
             ann_file,
