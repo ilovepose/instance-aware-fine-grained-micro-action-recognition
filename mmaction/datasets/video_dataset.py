@@ -66,7 +66,7 @@ class VideoDataset(BaseActionDataset):
         self.delimiter = delimiter
         self.embeddings=np.load("weights/MA52_CoarseFineVectors.npy")
         self.embeddings=self.embeddings.astype(np.float32)
-        with open('weights/instances_all_fix_all.pickle', 'rb') as fr:
+        with open('weights/trace1_all_fix_all_trace2_all_fix_all.pickle', 'rb') as fr:
             self.bboxes = pickle.load(fr)
         super().__init__(
             ann_file,
@@ -99,5 +99,9 @@ class VideoDataset(BaseActionDataset):
                 label = int(label)
             if self.data_prefix['video'] is not None:
                 filename = osp.join(self.data_prefix['video'], filename)
-            data_list.append(dict(filename=filename, label=label, emb=self.embeddings[label], bbox=self.bboxes[video_name]))
+            data_list.append(dict(
+                filename=filename,
+                label=label,
+                emb=self.embeddings[label],
+                bbox=self.bboxes.get(video_name, None)))
         return data_list
