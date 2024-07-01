@@ -56,7 +56,7 @@ class AccMetric(BaseMetric):
         for metric in metrics:
             assert metric in [
                 'top_k_accuracy', 'mean_class_accuracy',
-                'mmit_mean_average_precision', 'mean_average_precision', 'f1_mean'
+                'mmit_mean_average_precision', 'mean_average_precision', 'f1_mean', 'f1_mean_coarse'
             ]
 
         self.metrics = metrics
@@ -193,6 +193,12 @@ class AccMetric(BaseMetric):
                 # print('Macro f1-score', macro_score_fine)
                 f1_mean = (micro_score_coarse + macro_score_coarse + micro_score_fine + macro_score_fine) / 4
                 eval_results['f1_mean'] = f1_mean
+            if metric == "f1_mean_coarse":
+                preds_coarse = np.argmax(preds, axis=1).tolist()
+                micro_score_coarse = f1_score(labels, preds_coarse, average='micro')
+                macro_score_coarse = f1_score(labels, preds_coarse, average='macro')
+                f1_mean = (micro_score_coarse + macro_score_coarse) / 2
+                eval_results['f1_mean_coarse'] = f1_mean
 
             if metric in [
                     'mean_average_precision',

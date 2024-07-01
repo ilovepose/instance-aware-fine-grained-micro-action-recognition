@@ -37,5 +37,5 @@ __all__ = [
     'SampleAVAFrames', 'SampleFrames', 'TenCrop', 'ThreeCrop', 'ToMotion',
     'TorchVisionWrapper', 'Transpose', 'UniformSample', 'UniformSampleFrames',
     'UntrimmedSampleFrames', 'MMUniformSampleFrames', 'MMDecode', 'MMCompact',
-    'CLIPTokenize'
+    'CLIPTokenize','DecordDecodeCrop'
 ]

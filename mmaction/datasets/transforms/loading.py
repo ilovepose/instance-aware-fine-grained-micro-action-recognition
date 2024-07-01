@@ -1958,9 +1958,9 @@ class DecordDecodeCrop(DecordDecode):
 
     def __init__(self, mode: str = 'accurate', train=True, scale=(192, 256)):
         super().__init__(mode)
-        self.aspect_ratio = 0.5
-        self.train=train
-        self.scale=scale  # (w,h)
+        self.train = train
+        self.scale = scale  # (w,h)
+        self.aspect_ratio = scale[0] / scale[1]
 
     def transform(self, results: Dict) -> Dict:
         """Perform the Decord decoding.
@@ -1986,7 +1986,7 @@ class DecordDecodeCrop(DecordDecode):
         # results['original_shape'] = imgs[0].shape[:2]
         # results['img_shape'] = imgs[0].shape[:2]
         # img_h, img_w = imgs[0].shape[:2]
-        c, s = self._box2cs(results['bbox'])
+        c, s = box2cs(results['bbox'], self.aspect_ratio)
         r = 0
         offset = 0.0
         if self.train:
@@ -1998,8 +1998,6 @@ class DecordDecodeCrop(DecordDecode):
 
         trans = get_affine_transform(c, s, r, self.scale, offset)
         results['imgs'] = [cv2.warpAffine(img, trans, self.scale, flags=cv2.INTER_LINEAR) for img in imgs]
-        # bbox = [int(x) for x in results['bbox']]
-        # results['imgs'] = [mmcv.imcrop(img, np.array(bbox)) for img in imgs]
         results['original_shape'] = results['imgs'][0].shape[:2]
         results['img_shape'] = results['imgs'][0].shape[:2]
 
@@ -2017,22 +2015,22 @@ class DecordDecodeCrop(DecordDecode):
 
         return results
 
-    def _box2cs(self, box):
-        x1, y1, x2, y2 = box[:4]
+def box2cs(box, aspect_ratio):
+    x1, y1, x2, y2 = box[:4]
 
-        center = np.zeros((2), dtype=np.float32)  # np.array([xc, yc])
-        center[0] = (x1+x2) * 0.5
-        center[1] = (y1+y2) * 0.5
+    center = np.zeros((2), dtype=np.float32)  # np.array([xc, yc])
+    center[0] = (x1+x2) * 0.5
+    center[1] = (y1+y2) * 0.5
 
-        w = x2-x1
-        h = y2-y1
-        if w > self.aspect_ratio * h:
-            h = w / self.aspect_ratio
-        elif w < self.aspect_ratio * h:
-            w = h * self.aspect_ratio
-        scale = np.array([w, h], dtype=np.float32)
-        scale = scale * 1.05
-        return center, scale
+    w = x2-x1
+    h = y2-y1
+    if w > aspect_ratio * h:
+        h = w / aspect_ratio
+    elif w < aspect_ratio * h:
+        w = h * aspect_ratio
+    scale = np.array([w, h], dtype=np.float32)
+    scale = scale * 1.2
+    return center, scale
 
 def get_affine_transform(center, scale, rot, output_size, shift=0.0, inv=0):
     shift_x = random.random()*shift
