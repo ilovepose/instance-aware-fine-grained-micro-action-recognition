@@ -66,7 +66,7 @@ class VideoDataset(BaseActionDataset):
         self.delimiter = delimiter
         self.embeddings=np.load("weights/MA52_CoarseFineVectors.npy")
         self.embeddings=self.embeddings.astype(np.float32)
-        with open('/home/wangchen/projects/datasets/Microaction-52/annotations/trace1_fix_trace2_fix.pkl', 'rb') as fr:
+        with open('/home/wangchen/projects/datasets/Microaction-52/annotations/trace1_fix_trace2_fix_test3.pickle', 'rb') as fr:
             self.bboxes = pickle.load(fr)
         super().__init__(
             ann_file,
