@@ -1,0 +1,17 @@
+coarse label:
+0	body
+1	head
+2	upper limb
+3	lower limb
+4	body-hand
+5	head-hand
+6	leg-hand
+
+fine2coarse:
+0-4	0
+5-10	1
+11-23	2
+24-31	3
+32-37	4
+38-47	5
+48-51	6
