@@ -1982,18 +1982,15 @@ class DecordDecodeCrop(DecordDecode):
         results['video_reader'] = None
         del container
 
-        # results['imgs'] = imgs
-        # results['original_shape'] = imgs[0].shape[:2]
-        # results['img_shape'] = imgs[0].shape[:2]
-        # img_h, img_w = imgs[0].shape[:2]
         c, s = box2cs(results['bbox'], self.aspect_ratio)
         r = 0
         offset = 0.0
         if self.train:
             sf = 0.35
-            rf = 5
-            s = s * np.clip(np.random.randn()*sf + 1, 1 - sf, 1 + 0.5*sf)  #
-            r = np.clip(np.random.randn()*rf, -rf, rf) if random.random() <= 0.5 else 0
+            # rf = 5
+            # s = s * 1.05
+            s = s * (random.random()*sf + 1)  # np.random.randn()
+            # r = np.clip(np.random.randn()*rf, -rf, rf) if random.random() <= 0.5 else 0
             offset = 0.1
 
         trans = get_affine_transform(c, s, r, self.scale, offset)
@@ -2029,16 +2026,14 @@ def box2cs(box, aspect_ratio):
     elif w < aspect_ratio * h:
         w = h * aspect_ratio
     scale = np.array([w, h], dtype=np.float32)
-    scale = scale * 1.2
     return center, scale
 
 def get_affine_transform(center, scale, rot, output_size, shift=0.0, inv=0):
-    shift_x = random.random()*shift
-    shift_y = random.random()*shift
+    shift_x = (2*random.random()-1)*shift
+    shift_y = (2*random.random()-1)*shift
     shift=np.array([shift_x, shift_y], dtype=np.float32)
 
     if not isinstance(scale, np.ndarray) and not isinstance(scale, list):
-        print(scale)
         scale = np.array([scale, scale])
 
     src_w = scale[0]
