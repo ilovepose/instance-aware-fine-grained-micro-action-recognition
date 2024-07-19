@@ -1,14 +1,16 @@
 _base_ = [
     '../../_base_/models/swin_tiny.py', '../../_base_/default_runtime.py'
 ]
-load_from='weights/swin-tiny-p244-w877_in1k-pre_8xb8-amp-32x2x1-30e_kinetics400-rgb_20220930-241016b2.pth'
+
 model = dict(
     backbone=dict(
+        arch='base',
+        drop_path_rate=0.3,
         pretrained=  # noqa: E251
-        # 'https://download.openmmlab.com/mmaction/v1.0/recognition/swin/swin_tiny_patch4_window7_224.pth'  # noqa: E501
-        'weights/swin_tiny_patch4_window7_224.pth'
+        'weights/swin_base_patch4_window7_224.pth'  # noqa: E501
     ),
     cls_head=dict(
+        in_channels=1024,
         num_classes=52,
         loss_cls=dict(type='CoarseFocalLoss'),
         label_smooth_eps=0.2),
@@ -16,10 +18,9 @@ model = dict(
 
 # dataset settings
 dataset_type = 'VideoDataset'
-data_root = '/home/wangchen/projects/datasets/Microaction-52/train_trace1_trace2/'  #
+data_root = '/home/wangchen/projects/datasets/Microaction-52/train/'  #_trace1_trace2
 data_root_val = '/home/wangchen/projects/datasets/Microaction-52/val/'
-data_root_test = '/home/wangchen/projects/datasets/Microaction-52/val/'
-ann_file_train = '/home/wangchen/projects/datasets/Microaction-52/annotations/train_list_videos_aug3.txt'  #train_list_videos_aug.txt
+ann_file_train = '/home/wangchen/projects/datasets/Microaction-52/annotations/train_list_videos_aug.txt'
 ann_file_val = '/home/wangchen/projects/datasets/Microaction-52/annotations/val_list_videos.txt'
 ann_file_test = '/home/wangchen/projects/datasets/Microaction-52/annotations/val_list_videos.txt'
 
@@ -27,6 +28,10 @@ file_client_args = dict(io_backend='disk')
 train_pipeline = [
     dict(type='DecordInit', **file_client_args),
     dict(type='SampleFrames', clip_len=32, frame_interval=2, num_clips=1),
+    # dict(type='DecordDecode'),
+    # dict(type='Resize', scale=(-1, 256)),
+    # dict(type='RandomResizedCrop'),
+    # dict(type='Resize', scale=(224, 224), keep_ratio=False),
     dict(type='DecordDecodeCrop', train=True, scale=(160, 320)),
     dict(type='Flip', flip_ratio=0.5),
     dict(type='FormatShape', input_format='NCTHW'),
@@ -35,20 +40,26 @@ train_pipeline = [
 val_pipeline = [
     dict(type='DecordInit', **file_client_args),
     dict(type='SampleFrames', clip_len=32, frame_interval=2, num_clips=1, test_mode=True),
-    dict(type='DecordDecodeCrop', train=False, scale=(160, 320)),
+    # dict(type='DecordDecode'),
+    # dict(type='Resize', scale=(-1, 256)),
+    # dict(type='CenterCrop', crop_size=224),
+    dict(type='DecordDecodeCrop', train=True, scale=(160, 320)),
     dict(type='FormatShape', input_format='NCTHW'),
     dict(type='PackActionInputs')
 ]
 test_pipeline = [
     dict(type='DecordInit', **file_client_args),
     dict(type='SampleFrames', clip_len=32, frame_interval=2, num_clips=4, test_mode=True),
+    # dict(type='DecordDecode'),
+    # dict(type='Resize', scale=(-1, 224)),
+    # dict(type='ThreeCrop', crop_size=224),
     dict(type='DecordDecodeCrop', train=False, scale=(160, 320)),
     dict(type='FormatShape', input_format='NCTHW'),
     dict(type='PackActionInputs')
 ]
 
 train_dataloader = dict(
-    batch_size=8,
+    batch_size=4,
     num_workers=8,
     persistent_workers=True,
     sampler=dict(type='DefaultSampler', shuffle=True),
@@ -58,7 +69,7 @@ train_dataloader = dict(
         data_prefix=dict(video=data_root),
         pipeline=train_pipeline))
 val_dataloader = dict(
-    batch_size=8,
+    batch_size=4,
     num_workers=8,
     persistent_workers=True,
     sampler=dict(type='DefaultSampler', shuffle=False),
@@ -69,14 +80,14 @@ val_dataloader = dict(
         pipeline=val_pipeline,
         test_mode=True))
 test_dataloader = dict(
-    batch_size=8,
+    batch_size=1,
     num_workers=8,
     persistent_workers=True,
     sampler=dict(type='DefaultSampler', shuffle=False),
     dataset=dict(
         type=dataset_type,
         ann_file=ann_file_test,
-        data_prefix=dict(video=data_root_test),
+        data_prefix=dict(video=data_root_val),
         pipeline=test_pipeline,
         test_mode=True))
 
@@ -84,14 +95,14 @@ val_evaluator = dict(type='AccMetric', metric_list=('f1_mean', 'top_k_accuracy',
 test_evaluator = val_evaluator
 
 train_cfg = dict(
-    type='EpochBasedTrainLoop', max_epochs=40, val_begin=1, val_interval=1)
+    type='EpochBasedTrainLoop', max_epochs=30, val_begin=1, val_interval=1)
 val_cfg = dict(type='ValLoop')
 test_cfg = dict(type='TestLoop')
 
 optim_wrapper = dict(
     type='AmpOptimWrapper',
     optimizer=dict(
-        type='AdamW', lr=0.001, betas=(0.9, 0.999), weight_decay=0.02),
+        type='AdamW', lr=1e-3, betas=(0.9, 0.999), weight_decay=0.05),
     constructor='SwinOptimWrapperConstructor',
     paramwise_cfg=dict(
         absolute_pos_embed=dict(decay_mult=0.),
@@ -109,11 +120,11 @@ param_scheduler = [
         convert_to_iter_based=True),
     dict(
         type='CosineAnnealingLR',
-        T_max=40,
+        T_max=30,
         eta_min=0,
         by_epoch=True,
         begin=0,
-        end=40)
+        end=30)
 ]
 
 default_hooks = dict(

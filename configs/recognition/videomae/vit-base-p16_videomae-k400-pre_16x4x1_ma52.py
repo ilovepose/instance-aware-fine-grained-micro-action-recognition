@@ -1,47 +1,59 @@
-_base_ = [
-    '../../_base_/models/swin_tiny.py', '../../_base_/default_runtime.py'
-]
-load_from='weights/swin-tiny-p244-w877_in1k-pre_8xb8-amp-32x2x1-30e_kinetics400-rgb_20220930-241016b2.pth'
+_base_ = ['../../_base_/default_runtime.py']
+load_from = r'weights/vit-base-p16_videomae-k400-pre_16x4x1_kinetics-400_20221013-860a3cd3.pth'
+# model settings
 model = dict(
+    type='Recognizer3D',
     backbone=dict(
-        pretrained=  # noqa: E251
-        # 'https://download.openmmlab.com/mmaction/v1.0/recognition/swin/swin_tiny_patch4_window7_224.pth'  # noqa: E501
-        'weights/swin_tiny_patch4_window7_224.pth'
-    ),
+        type='VisionTransformer',
+        img_size=224,
+        patch_size=16,
+        embed_dims=768,
+        depth=12,
+        num_heads=12,
+        mlp_ratio=4,
+        qkv_bias=True,
+        num_frames=16,
+        norm_cfg=dict(type='LN', eps=1e-6)),
     cls_head=dict(
+        type='TimeSformerHead',
         num_classes=52,
-        loss_cls=dict(type='CoarseFocalLoss'),
-        label_smooth_eps=0.2),
-    )
+        in_channels=768,
+        average_clips='prob',
+        loss_cls=dict(type='CoarseFocalLoss')),
+    data_preprocessor=dict(
+        type='ActionDataPreprocessor',
+        mean=[123.675, 116.28, 103.53],
+        std=[58.395, 57.12, 57.375],
+        format_shape='NCTHW'))
 
 # dataset settings
 dataset_type = 'VideoDataset'
 data_root = '/home/wangchen/projects/datasets/Microaction-52/train_trace1_trace2/'  #
 data_root_val = '/home/wangchen/projects/datasets/Microaction-52/val/'
-data_root_test = '/home/wangchen/projects/datasets/Microaction-52/val/'
-ann_file_train = '/home/wangchen/projects/datasets/Microaction-52/annotations/train_list_videos_aug3.txt'  #train_list_videos_aug.txt
+data_root_test = '/home/wangchen/projects/datasets/Microaction-52/test/'
+ann_file_train = '/home/wangchen/projects/datasets/Microaction-52/annotations/train_list_videos_aug2.txt'  #train_trace1_trace2.txt
 ann_file_val = '/home/wangchen/projects/datasets/Microaction-52/annotations/val_list_videos.txt'
-ann_file_test = '/home/wangchen/projects/datasets/Microaction-52/annotations/val_list_videos.txt'
+ann_file_test = '/home/wangchen/projects/datasets/Microaction-52/annotations/test_list_videos.txt'
 
 file_client_args = dict(io_backend='disk')
 train_pipeline = [
     dict(type='DecordInit', **file_client_args),
-    dict(type='SampleFrames', clip_len=32, frame_interval=2, num_clips=1),
-    dict(type='DecordDecodeCrop', train=True, scale=(160, 320)),
+    dict(type='SampleFrames', clip_len=16, frame_interval=4, num_clips=1),
+    dict(type='DecordDecodeCrop', train=True, scale=(160, 320)),  #192, 384
     dict(type='Flip', flip_ratio=0.5),
     dict(type='FormatShape', input_format='NCTHW'),
     dict(type='PackActionInputs')
 ]
 val_pipeline = [
     dict(type='DecordInit', **file_client_args),
-    dict(type='SampleFrames', clip_len=32, frame_interval=2, num_clips=1, test_mode=True),
+    dict(type='SampleFrames', clip_len=16, frame_interval=4, num_clips=1, test_mode=True),
     dict(type='DecordDecodeCrop', train=False, scale=(160, 320)),
     dict(type='FormatShape', input_format='NCTHW'),
     dict(type='PackActionInputs')
 ]
 test_pipeline = [
     dict(type='DecordInit', **file_client_args),
-    dict(type='SampleFrames', clip_len=32, frame_interval=2, num_clips=4, test_mode=True),
+    dict(type='SampleFrames', clip_len=16, frame_interval=4, num_clips=4, test_mode=True),
     dict(type='DecordDecodeCrop', train=False, scale=(160, 320)),
     dict(type='FormatShape', input_format='NCTHW'),
     dict(type='PackActionInputs')
@@ -84,36 +96,36 @@ val_evaluator = dict(type='AccMetric', metric_list=('f1_mean', 'top_k_accuracy',
 test_evaluator = val_evaluator
 
 train_cfg = dict(
-    type='EpochBasedTrainLoop', max_epochs=40, val_begin=1, val_interval=1)
+    type='EpochBasedTrainLoop', max_epochs=20, val_begin=1, val_interval=1)
 val_cfg = dict(type='ValLoop')
 test_cfg = dict(type='TestLoop')
 
 optim_wrapper = dict(
-    type='AmpOptimWrapper',
-    optimizer=dict(
-        type='AdamW', lr=0.001, betas=(0.9, 0.999), weight_decay=0.02),
-    constructor='SwinOptimWrapperConstructor',
+    optimizer=dict(type='AdamW', lr=2.5e-4, betas=(0.9, 0.999), weight_decay=0.05),
+    constructor='LearningRateDecayOptimizerConstructor',
     paramwise_cfg=dict(
-        absolute_pos_embed=dict(decay_mult=0.),
-        relative_position_bias_table=dict(decay_mult=0.),
-        norm=dict(decay_mult=0.),
-        backbone=dict(lr_mult=0.1)))
-
+        decay_rate=0.9,
+        decay_type='layer_wise',
+        num_layers=12,
+        backbone=dict(lr_mult=0.1),
+    ),
+    clip_grad=dict(max_norm=40, norm_type=2))
 param_scheduler = [
     dict(
         type='LinearLR',
         start_factor=0.1,
         by_epoch=True,
         begin=0,
-        end=2.5,
+        end=5,
         convert_to_iter_based=True),
     dict(
         type='CosineAnnealingLR',
-        T_max=40,
+        T_max=15,
         eta_min=0,
         by_epoch=True,
-        begin=0,
-        end=40)
+        begin=5,
+        end=20,
+        convert_to_iter_based=True)
 ]
 
 default_hooks = dict(
@@ -123,4 +135,4 @@ default_hooks = dict(
 #   - `enable` means enable scaling LR automatically
 #       or not by default.
 #   - `base_batch_size` = (8 GPUs) x (8 samples per GPU).
-auto_scale_lr = dict(enable=True, base_batch_size=64)
+auto_scale_lr = dict(enable=False, base_batch_size=64)

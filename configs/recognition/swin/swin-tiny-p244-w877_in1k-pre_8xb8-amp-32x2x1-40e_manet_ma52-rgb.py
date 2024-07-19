@@ -2,21 +2,20 @@ _base_ = [
     '../../_base_/models/swin_tiny.py', '../../_base_/default_runtime.py'
 ]
 
+# load_from = '/home/wangchen/projects/mmaction2/work_dirs/swin-tiny-p244-w877_in1k-pre_8xb8-amp-32x2x1-40e_ma52-rgb/best_acc_f1_mean_6741.pth'
+
 model = dict(
     backbone=dict(
         pretrained=  # noqa: E251
         # 'https://download.openmmlab.com/mmaction/v1.0/recognition/swin/swin_tiny_patch4_window7_224.pth'  # noqa: E501
-        'weights/swin_tiny_patch4_window7_224.pth'),
+        'weights/swin_tiny_patch4_window7_224.pth'
+    ),
     cls_head=dict(
         type='MANet3DHead',
         in_channels=768,
         num_classes=52,
-        spatial_type='avg',
-        consensus=dict(type='AvgConsensus', dim=1),
-        dropout_ratio=0.5,
-        init_std=0.001,
-        is_shift=True,
-        average_clips='prob'),
+        # loss_cls=dict(type='CoarseFocalLoss'),
+        label_smooth_eps=0.2),
     )
 
 # dataset settings
@@ -32,39 +31,25 @@ file_client_args = dict(io_backend='disk')
 train_pipeline = [
     dict(type='DecordInit', **file_client_args),
     dict(type='SampleFrames', clip_len=32, frame_interval=2, num_clips=1),
-    dict(type='DecordDecode'),
-    dict(type='Resize', scale=(-1, 256)),
-    dict(type='RandomResizedCrop'),
-    dict(type='Resize', scale=(224, 224), keep_ratio=False),
+    dict(type='DecordDecodeCrop', train=True, scale=(160, 320)),
     dict(type='Flip', flip_ratio=0.5),
     dict(type='FormatShape', input_format='NCTHW'),
     dict(type='PackActionInputs')
 ]
 val_pipeline = [
     dict(type='DecordInit', **file_client_args),
-    dict(
-        type='SampleFrames',
-        clip_len=32,
-        frame_interval=2,
-        num_clips=1,
-        test_mode=True),
-    dict(type='DecordDecode'),
-    dict(type='Resize', scale=(-1, 256)),
-    dict(type='CenterCrop', crop_size=224),
+    dict(type='SampleFrames', clip_len=32, frame_interval=2, num_clips=1, test_mode=True),
+    dict(type='DecordDecodeCrop', train=False, scale=(160, 320)),
     dict(type='FormatShape', input_format='NCTHW'),
     dict(type='PackActionInputs')
 ]
 test_pipeline = [
     dict(type='DecordInit', **file_client_args),
-    dict(
-        type='SampleFrames',
-        clip_len=32,
-        frame_interval=2,
-        num_clips=4,
-        test_mode=True),
-    dict(type='DecordDecode'),
-    dict(type='Resize', scale=(-1, 224)),
-    dict(type='ThreeCrop', crop_size=224),
+    dict(type='SampleFrames', clip_len=32, frame_interval=2, num_clips=4, test_mode=True),
+    dict(type='DecordDecodeCrop', train=False, scale=(160, 320)),
+    # dict(type='DecordDecode'),
+    # dict(type='Resize', scale=(-1, 224)),
+    # dict(type='ThreeCrop', crop_size=224),
     dict(type='FormatShape', input_format='NCTHW'),
     dict(type='PackActionInputs')
 ]
@@ -91,7 +76,7 @@ val_dataloader = dict(
         pipeline=val_pipeline,
         test_mode=True))
 test_dataloader = dict(
-    batch_size=1,
+    batch_size=8,
     num_workers=8,
     persistent_workers=True,
     sampler=dict(type='DefaultSampler', shuffle=False),
@@ -102,11 +87,11 @@ test_dataloader = dict(
         pipeline=test_pipeline,
         test_mode=True))
 
-val_evaluator = dict(type='AccMetric')
+val_evaluator = dict(type='AccMetric', metric_list=('f1_mean', 'top_k_accuracy', 'mean_class_accuracy'))
 test_evaluator = val_evaluator
 
 train_cfg = dict(
-    type='EpochBasedTrainLoop', max_epochs=40, val_begin=1, val_interval=3)
+    type='EpochBasedTrainLoop', max_epochs=40, val_begin=1, val_interval=1)
 val_cfg = dict(type='ValLoop')
 test_cfg = dict(type='TestLoop')
 
@@ -139,7 +124,7 @@ param_scheduler = [
 ]
 
 default_hooks = dict(
-    checkpoint=dict(interval=3, max_keep_ckpts=5), logger=dict(interval=100))
+    checkpoint=dict(interval=1, max_keep_ckpts=1), logger=dict(interval=100))
 
 # Default setting for scaling LR automatically
 #   - `enable` means enable scaling LR automatically

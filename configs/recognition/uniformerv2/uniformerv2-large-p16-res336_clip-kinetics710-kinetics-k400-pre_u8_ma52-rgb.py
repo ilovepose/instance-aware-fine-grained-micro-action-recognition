@@ -1,5 +1,5 @@
 _base_ = ['../../_base_/default_runtime.py']
-
+load_from='weights/uniformerv2-large-p14-res336_clip-kinetics710-pre_u32_kinetics400-rgb_20221219-1dd7650f.pth'
 # model settings
 num_frames = 8
 model = dict(
@@ -41,7 +41,7 @@ model = dict(
 dataset_type = 'VideoDataset'
 data_root = '/home/wangchen/projects/datasets/Microaction-52/train'
 data_root_val = '/home/wangchen/projects/datasets/Microaction-52/val'
-ann_file_train = '/home/wangchen/projects/datasets/Microaction-52/annotations/train_list_videos.txt'
+ann_file_train = '/home/wangchen/projects/datasets/Microaction-52/annotations/train_list_videos_aug.txt'
 ann_file_val = '/home/wangchen/projects/datasets/Microaction-52/annotations/val_list_videos.txt'
 ann_file_test = '/home/wangchen/projects/datasets/Microaction-52/annotations/val_list_videos.txt'
 
@@ -62,20 +62,20 @@ train_pipeline = [
     dict(type='FormatShape', input_format='NCTHW'),
     dict(type='PackActionInputs')
 ]
-# val_pipeline = [
-#     dict(type='DecordInit', **file_client_args),
-#     dict(
-#         type='SampleFrames',
-#         clip_len=8,
-#         frame_interval=8,
-#         num_clips=1,
-#         test_mode=True),
-#     dict(type='DecordDecode'),
-#     dict(type='Resize', scale=(-1, 336)),
-#     dict(type='CenterCrop', crop_size=336),
-#     dict(type='FormatShape', input_format='NCTHW'),
-#     dict(type='PackActionInputs')
-# ]
+val_pipeline = [
+    dict(type='DecordInit', **file_client_args),
+    dict(
+        type='SampleFrames',
+        clip_len=8,
+        frame_interval=8,
+        num_clips=1,
+        test_mode=True),
+    dict(type='DecordDecode'),
+    dict(type='Resize', scale=(-1, 336)),
+    dict(type='CenterCrop', crop_size=336),
+    dict(type='FormatShape', input_format='NCTHW'),
+    dict(type='PackActionInputs')
+]
 test_pipeline = [
     dict(type='DecordInit'),
     dict(
@@ -99,17 +99,17 @@ train_dataloader = dict(
         data_prefix=dict(video=data_root),
         pipeline=train_pipeline)
 )
-# val_dataloader = dict(
-#     batch_size=1,
-#     num_workers=2,
-#     persistent_workers=True,
-#     sampler=dict(type='DefaultSampler', shuffle=False),
-#     dataset=dict(
-#         type=dataset_type,
-#         ann_file=ann_file_val,
-#         data_prefix=dict(video=data_root_val),
-#         pipeline=val_pipeline,
-#         test_mode=True))
+val_dataloader = dict(
+    batch_size=1,
+    num_workers=2,
+    persistent_workers=True,
+    sampler=dict(type='DefaultSampler', shuffle=False),
+    dataset=dict(
+        type=dataset_type,
+        ann_file=ann_file_val,
+        data_prefix=dict(video=data_root_val),
+        pipeline=val_pipeline,
+        test_mode=True))
 test_dataloader = dict(
     batch_size=1,
     num_workers=2,
@@ -122,7 +122,7 @@ test_dataloader = dict(
         pipeline=test_pipeline,
         test_mode=True,
         delimiter=' '))
-val_dataloader = test_dataloader
+# val_dataloader = test_dataloader
 
 train_cfg = dict(
     type='EpochBasedTrainLoop', 
@@ -132,7 +132,7 @@ train_cfg = dict(
 optim_wrapper = dict(
     optimizer=dict(type='SGD', lr=0.01, momentum=0.9, weight_decay=0.0001),
     clip_grad=dict(max_norm=40, norm_type=2))
-val_evaluator  = dict(type='AccMetric')
-test_evaluator = dict(type='AccMetric')
+val_evaluator  = dict(type='AccMetric', metric_list=('f1_mean', 'top_k_accuracy', 'mean_class_accuracy'))
+test_evaluator = dict(type='AccMetric', metric_list=('f1_mean', 'top_k_accuracy', 'mean_class_accuracy'))
 val_cfg = dict(type='ValLoop')
 test_cfg = dict(type='TestLoop')
