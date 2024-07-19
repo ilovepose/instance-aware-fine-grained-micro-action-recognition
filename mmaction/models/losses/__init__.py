@@ -8,10 +8,10 @@ from .hvu_loss import HVULoss
 from .nll_loss import NLLLoss
 from .ohem_hinge_loss import OHEMHingeLoss
 from .ssn_loss import SSNLoss
-from .mse_loss import MseLoss, CoarseFocalLoss  # wangchen add for MANet
+from .mse_loss import MultiFocalLoss, CoarseFocalLoss, BiCrossEntropyLoss  # wangchen add for MANet
 
 __all__ = [
     'BaseWeightedLoss', 'CrossEntropyLoss', 'NLLLoss', 'BCELossWithLogits',
     'BinaryLogisticRegressionLoss', 'BMNLoss', 'OHEMHingeLoss', 'SSNLoss',
-    'HVULoss', 'CBFocalLoss', 'MseLoss', 'CoarseFocalLoss'
+    'HVULoss', 'CBFocalLoss', 'MultiFocalLoss', 'CoarseFocalLoss', 'BiCrossEntropyLoss'
 ]

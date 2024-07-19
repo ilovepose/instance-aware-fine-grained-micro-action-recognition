@@ -7,37 +7,6 @@ from mmaction.registry import MODELS
 from .base import BaseWeightedLoss
 
 
-def mse_center_loss(output, target, labels):
-    #(out['embed'], embeddings, target)
-    t = labels.clone().detach()
-    t[t >= 0.5] = 1  # threshold to get binary labels
-    t[t < 0.5] = 0
-
-
-    positive_centers = []
-    for i in range(output.size(0)):
-        p = target[i]
-        if p.size(0) == 0:
-            positive_center = torch.zeros(300).cuda()
-        else:
-            # positive_center = torch.mean(p, dim=0)
-            positive_center = p
-        positive_centers.append(positive_center)
-
-    positive_centers = torch.stack(positive_centers,dim=0)
-    #在dim=0上堆积
-    loss = F.mse_loss(output, positive_centers)
-  
-    return loss
-
-
-@MODELS.register_module()
-class MseLoss(nn.Module):
-    def forward(self, output, target, labels):
-        loss = mse_center_loss(output, target, labels)
-        return loss
-
-
 @MODELS.register_module()
 class MultiFocalLoss(nn.Module):
     """
@@ -120,6 +89,151 @@ class CoarseFocalLoss(BaseWeightedLoss):
 
     def __init__(self,
                  loss_weight: float = 1.0,
+                 alpha: float = 0.25,
+                 gamma: float = 2.,
+                 class_weight: Optional[List[float]] = None) -> None:
+        super().__init__(loss_weight=loss_weight)
+        self.class_weight = None
+        if class_weight is not None:
+            self.class_weight = torch.Tensor(class_weight)
+        self.alpha = alpha
+        self.gamma = gamma
+
+    def _forward(self, cls_score: torch.Tensor, label: torch.Tensor,
+                 **kwargs) -> torch.Tensor:
+        """Forward function.
+
+        Args:
+            cls_score (torch.Tensor): The class score.
+            label (torch.Tensor): The ground truth label.
+            kwargs: Any keyword argument to be used to calculate
+                CrossEntropy loss.
+
+        Returns:
+            torch.Tensor: The returned CrossEntropy loss.
+        """
+        if cls_score.size() == label.size():
+            # calculate loss for soft label
+
+            assert cls_score.dim() == 2, 'Only support 2-dim soft label'
+            assert len(kwargs) == 0, \
+                ('For now, no extra args are supported for soft label, '
+                 f'but get {kwargs}')
+
+            lsm = F.log_softmax(cls_score, 1)
+            if self.class_weight is not None:
+                self.class_weight = self.class_weight.to(cls_score.device)
+                lsm = lsm * self.class_weight.unsqueeze(0)
+            loss_cls = -(label * lsm).sum(1)
+
+            # default reduction 'mean'
+            if self.class_weight is not None:
+                # Use weighted average as pytorch CrossEntropyLoss does.
+                # For more information, please visit https://pytorch.org/docs/stable/generated/torch.nn.CrossEntropyLoss.html # noqa
+                loss_cls = loss_cls.sum() / torch.sum(
+                    self.class_weight.unsqueeze(0) * label)
+            else:
+                loss_cls = loss_cls.mean()
+
+            prob_coarse = torch.empty((cls_score.shape[0], 7), device=cls_score.device)  # [N, 7]
+            prob_fine = F.softmax(cls_score, dim=1)  # [N, 52]
+            prob_coarse[:, 0] = torch.sum(prob_fine[:, :5], dim=1)
+            prob_coarse[:, 1] = torch.sum(prob_fine[:, 5:11], dim=1)
+            prob_coarse[:, 2] = torch.sum(prob_fine[:, 11:24], dim=1)
+            prob_coarse[:, 3] = torch.sum(prob_fine[:, 24:32], dim=1)
+            prob_coarse[:, 4] = torch.sum(prob_fine[:, 32:38], dim=1)
+            prob_coarse[:, 5] = torch.sum(prob_fine[:, 38:48], dim=1)
+            prob_coarse[:, 6] = torch.sum(prob_fine[:, 48:], dim=1)
+            
+            gt_coarse = torch.empty((cls_score.shape[0], 7), device=cls_score.device)  # [N, 7]
+            gt_coarse[:, 0] = torch.sum(label[:, :5], dim=1)
+            gt_coarse[:, 1] = torch.sum(label[:, 5:11], dim=1)
+            gt_coarse[:, 2] = torch.sum(label[:, 11:24], dim=1)
+            gt_coarse[:, 3] = torch.sum(label[:, 24:32], dim=1)
+            gt_coarse[:, 4] = torch.sum(label[:, 32:38], dim=1)
+            gt_coarse[:, 5] = torch.sum(label[:, 38:48], dim=1)
+            gt_coarse[:, 6] = torch.sum(label[:, 48:], dim=1)
+            gt_coarse = torch.argmax(gt_coarse, dim=1, keepdim=True)  # [N, 7]->[N, 1]
+
+            prob = prob_coarse.gather(1, gt_coarse).view(-1)
+            loss_coarse = -self.alpha * torch.pow(torch.sub(1.0, prob), self.gamma) * torch.log(prob)
+            loss_cls += torch.mean(loss_coarse)
+
+        else:
+            # calculate loss for hard label
+            if self.class_weight is not None:
+                assert 'weight' not in kwargs, \
+                    "The key 'weight' already exists."
+                kwargs['weight'] = self.class_weight.to(cls_score.device)
+            # loss_cls = F.cross_entropy(cls_score, label, **kwargs)
+            label2 = label.clone()
+            label_smooth_eps=0.1
+            label = F.one_hot(label, num_classes=cls_score.shape[1])
+            label = ((1 - label_smooth_eps) * label +
+                      label_smooth_eps / cls_score.shape[1])
+            lsm = F.log_softmax(cls_score, 1)
+            if self.class_weight is not None:
+                self.class_weight = self.class_weight.to(cls_score.device)
+                lsm = lsm * self.class_weight.unsqueeze(0)
+            loss_cls = -(label * lsm).sum(1)
+
+            # default reduction 'mean'
+            if self.class_weight is not None:
+                # Use weighted average as pytorch CrossEntropyLoss does.
+                # For more information, please visit https://pytorch.org/docs/stable/generated/torch.nn.CrossEntropyLoss.html # noqa
+                loss_cls = loss_cls.sum() / torch.sum(
+                    self.class_weight.unsqueeze(0) * label)
+            else:
+                loss_cls = loss_cls.mean()
+
+            prob_coarse = torch.empty((cls_score.shape[0], 7), device=cls_score.device)  # [N, 7]
+            prob_fine = F.softmax(cls_score, dim=1)  # [N, 52]
+            prob_coarse[:, 0] = torch.sum(prob_fine[:, :5], dim=1)
+            prob_coarse[:, 1] = torch.sum(prob_fine[:, 5:11], dim=1)
+            prob_coarse[:, 2] = torch.sum(prob_fine[:, 11:24], dim=1)
+            prob_coarse[:, 3] = torch.sum(prob_fine[:, 24:32], dim=1)
+            prob_coarse[:, 4] = torch.sum(prob_fine[:, 32:38], dim=1)
+            prob_coarse[:, 5] = torch.sum(prob_fine[:, 38:48], dim=1)
+            prob_coarse[:, 6] = torch.sum(prob_fine[:, 48:], dim=1)
+            
+            gt_coarse = torch.zeros((cls_score.shape[0],1), device=cls_score.device, dtype=torch.int64)  # [N, ]
+            for i in range(cls_score.shape[0]):
+                # print(label[i])
+                gt_coarse[i,0] = fine2coarse(label2[i])
+
+            prob = prob_coarse.gather(1, gt_coarse).view(-1)
+            loss_coarse = -self.alpha * torch.pow(torch.sub(1.0, prob), self.gamma) * torch.log(prob)
+            loss_cls += torch.mean(loss_coarse)
+
+        return loss_cls
+
+
+@MODELS.register_module()
+class BiCrossEntropyLoss(BaseWeightedLoss):
+    """Cross Entropy Loss.
+
+    Support two kinds of labels and their corresponding loss type. It's worth
+    mentioning that loss type will be detected by the shape of ``cls_score``
+    and ``label``.
+    1) Hard label: This label is an integer array and all of the elements are
+        in the range [0, num_classes - 1]. This label's shape should be
+        ``cls_score``'s shape with the `num_classes` dimension removed.
+    2) Soft label(probability distribution over classes): This label is a
+        probability distribution and all of the elements are in the range
+        [0, 1]. This label's shape must be the same as ``cls_score``. For now,
+        only 2-dim soft label is supported.
+
+    Args:
+        loss_weight (float): Factor scalar multiplied on the loss.
+            Defaults to 1.0.
+        class_weight (list[float] | None): Loss weight for each class. If set
+            as None, use the same weight 1 for all classes. Only applies
+            to CrossEntropyLoss and BCELossWithLogits (should not be set when
+            using other losses). Defaults to None.
+    """
+
+    def __init__(self,
+                 loss_weight: float = 1.0,
                  class_weight: Optional[List[float]] = None) -> None:
         super().__init__(loss_weight=loss_weight)
         self.class_weight = None
@@ -159,33 +273,36 @@ class CoarseFocalLoss(BaseWeightedLoss):
                 # For more information, please visit https://pytorch.org/docs/stable/generated/torch.nn.CrossEntropyLoss.html # noqa
                 loss_cls = loss_cls.sum() / torch.sum(
                     self.class_weight.unsqueeze(0) * label)
+                raise NotImplementedError
             else:
                 loss_cls = loss_cls.mean()
 
-            prob_coarse = torch.empty((cls_score.shape[0], 7))  # [N, 7]
             prob_fine = F.softmax(cls_score, dim=1)  # [N, 52]
-            prob_coarse[:, 0] = torch.sum(prob_fine[:, :5], dim=1)
-            prob_coarse[:, 1] = torch.sum(prob_fine[:, 5:11], dim=1)
-            prob_coarse[:, 2] = torch.sum(prob_fine[:, 11:24], dim=1)
-            prob_coarse[:, 3] = torch.sum(prob_fine[:, 24:32], dim=1)
-            prob_coarse[:, 4] = torch.sum(prob_fine[:, 32:38], dim=1)
-            prob_coarse[:, 5] = torch.sum(prob_fine[:, 38:48], dim=1)
-            prob_coarse[:, 6] = torch.sum(prob_fine[:, 48:], dim=1)
+            prob_coarse_0 = torch.sum(prob_fine[:, :5], dim=1)
+            prob_coarse_1 = torch.sum(prob_fine[:, 5:11], dim=1)
+            prob_coarse_2 = torch.sum(prob_fine[:, 11:24], dim=1)
+            prob_coarse_3 = torch.sum(prob_fine[:, 24:32], dim=1)
+            prob_coarse_4 = torch.sum(prob_fine[:, 32:38], dim=1)
+            prob_coarse_5 = torch.sum(prob_fine[:, 38:48], dim=1)
+            prob_coarse_6 = torch.sum(prob_fine[:, 48:], dim=1)
             
-            gt_coarse = torch.empty((cls_score.shape[0], 7))  # [N, 7]
-            gt_coarse[:, 0] = torch.sum(label[:, :5], dim=1)
-            gt_coarse[:, 1] = torch.sum(label[:, 5:11], dim=1)
-            gt_coarse[:, 2] = torch.sum(label[:, 11:24], dim=1)
-            gt_coarse[:, 3] = torch.sum(label[:, 24:32], dim=1)
-            gt_coarse[:, 4] = torch.sum(label[:, 32:38], dim=1)
-            gt_coarse[:, 5] = torch.sum(label[:, 38:48], dim=1)
-            gt_coarse[:, 6] = torch.sum(label[:, 48:], dim=1)
-            gt_coarse = torch.argmax(gt_coarse, dim=1, keepdim=True)  # [N, 7]->[N, 1]
+            gt_coarse_0 = torch.sum(label[:, :5], dim=1)
+            gt_coarse_1 = torch.sum(label[:, 5:11], dim=1)
+            gt_coarse_2 = torch.sum(label[:, 11:24], dim=1)
+            gt_coarse_3 = torch.sum(label[:, 24:32], dim=1)
+            gt_coarse_4 = torch.sum(label[:, 32:38], dim=1)
+            gt_coarse_5 = torch.sum(label[:, 38:48], dim=1)
+            gt_coarse_6 = torch.sum(label[:, 48:], dim=1)
+            # gt_coarse = torch.argmax(gt_coarse, dim=1, keepdim=True)  # [N, 7]->[N, 1]
 
-            prob = prob_coarse.gather(1, gt_coarse).view(-1)
-            logpt = torch.log(prob)
-            loss_coarse = -0.25 * torch.pow(torch.sub(1.0, prob), 2.0) * logpt
-            loss_cls += torch.mean(loss_coarse)
+            loss_coarse = -(prob_coarse_0 * torch.log(gt_coarse_0)+
+                            prob_coarse_1 * torch.log(gt_coarse_1)+
+                            prob_coarse_2 * torch.log(gt_coarse_2)+
+                            prob_coarse_3 * torch.log(gt_coarse_3)+
+                            prob_coarse_4 * torch.log(gt_coarse_4)+
+                            prob_coarse_5 * torch.log(gt_coarse_5)+
+                            prob_coarse_6 * torch.log(gt_coarse_6))
+            loss_cls += 0.5*loss_coarse.mean()
 
         else:
             # calculate loss for hard label
@@ -197,3 +314,19 @@ class CoarseFocalLoss(BaseWeightedLoss):
             loss_cls = F.cross_entropy(cls_score, label, **kwargs)
 
         return loss_cls
+
+def fine2coarse(x):
+    if x <= 4:
+        return 0
+    elif 5 <= x <= 10:
+        return 1
+    elif 11 <= x <= 23:
+        return 2
+    elif 24 <= x <= 31:
+        return 3
+    elif 32 <= x <= 37:
+        return 4
+    elif 38 <= x <= 47:
+        return 5
+    else:
+        return 6

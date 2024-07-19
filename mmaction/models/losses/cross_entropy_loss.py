@@ -125,6 +125,9 @@ class BCELossWithLogits(BaseWeightedLoss):
         if self.class_weight is not None:
             assert 'weight' not in kwargs, "The key 'weight' already exists."
             kwargs['weight'] = self.class_weight.to(cls_score.device)
+        if cls_score.shape != label.shape:
+            label = F.one_hot(label, num_classes=cls_score.shape[-1])
+            label = label.to(torch.float32)
         loss_cls = F.binary_cross_entropy_with_logits(cls_score, label,
                                                       **kwargs)
         return loss_cls
